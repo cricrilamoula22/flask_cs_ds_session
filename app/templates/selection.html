@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block content %}
+
+<style>
+  .scrollable-pane {
+    height: 100%;
+    overflow-y: auto;
+  }
+</style>
+
+<div class="container-fluid vh-100 d-flex flex-column">
+
+  <div class="row p-3">
+    <div class="col-md-7">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Filtres des Parcelles</h4>
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addParcelModal">
+          + Ajouter manuellement une parcelle manquante au cadastre et à la sélection
+        </button>
+      </div>
+      <form method="POST" id="filter-form" action="{{ url_for('selection.index') }}">
+        {{ form.hidden_tag() }}
+        <div class="mb-3">
+          {{ form.departement.label(class="form-label") }}
+          {{ form.departement(class="form-select", id="departement") }}
+        </div>
+        <div class="mb-3">
+          {{ form.commune.label(class="form-label") }}
+          {{ form.commune(class="form-select", id="commune") }}
+        </div>
+        <div class="mb-3">
+          {{ form.section.label(class="form-label") }}
+          {{ form.section(class="form-select", id="section") }}
+        </div>
+      </form>
+	  
+    </div>
+    <div class="col-md-4">
+      <h5>Superficie totale demandée :</h5>
+      <p>Total des surfaces sélectionnées : <span id="total-selection">{{ total_selection|int }}</span> m²</p>
+	              <form align="right" id="clear-selection-form" action="{{ url_for('selection.clear_selection') }}" method="POST">
+                <button type="submit" class="btn btn-danger btn-sm">Vider l'ensemble des parcelles sélectionnées (seulement si besoin de tout réinitialiser)</button>
+            </form>
+      <a href="{{ url_for('selection.export_parcelles_excel') }}" class="btn btn-success mt-3">
+        Télécharger la sélection au format Excel (pour ensuite téléverser le tableau dans Démarches Simplifiées)
+      </a>
+      <hr>
+      <h4>Sous-totaux demandés par commune :</h4>
+      <ul class="list-group" id="sous-totaux-list">
+        {% for (code_insee, libelle), total in subtotals.items() %}
+        <li class="list-group-item" data-code-insee="{{ code_insee }}">
+          Commune {{ libelle }} ({{ code_insee }}) : <span class="subtotal-value">{{ total|int }}</span> m²
+        </li>
+        {% else %}
+        <p>Aucun sous-total disponible.</p>
+        {% endfor %}
+      </ul>
+	              <h4 align="right" class="mt-0"> Parcelles sélectionnées dans la demande : </h4>
+    </div>
+        <h5>Liste des Parcelles du Cadastre Filtrées : décocher simplement la parcelle à gauche pour l'enlever de la sélection à droite </h5>
+  </div>
+
+  <hr class="my-0">
+
+  <div class="row flex-grow-1 g-0" style="min-height: 0;">
+
+    <div class="col-md-8 border-end h-100">
+      <div class="scrollable-pane p-3">
+        <!--<h5>Liste des Parcelles Cadastrales Filtrées</h5>-->
+        {% if parcelles_list %}
+        <div class="d-flex flex-wrap gap-2" id="parcelles-list-group">
+          {% for parcelle in parcelles_list %}
+          <div class="border rounded p-2 d-flex align-items-center" style="min-width: 200px;">
+            <input type="checkbox"
+                   class="form-check-input me-2 parcelle-checkbox"
+                   data-idsuf="{{ parcelle.idsuf }}"
+                   {% if parcelle in selected_parcelles_for_checkbox %}checked{% endif %}>
+            <span>{{ parcelle.idsuf }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>Aucune parcelle trouvée. Veuillez sélectionner une section pour afficher les résultats.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="col-md-4 h-100">
+      <div class="scrollable-pane p-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <!--<h4 class="mt-0">Parcelles sélectionnées dans la demande :</h4>-->
+
+        </div>
+        <hr>
+        {% if selected_parcelles_associations %}
+        <div class="d-flex flex-wrap gap-2" id="selection-list">
+          {% for sel_assoc in selected_parcelles_associations %}
+            {% if sel_assoc.TCadastre and sel_assoc.TCommune %}
+            <div class="border rounded p-2"
+                 data-code-insee="{{ sel_assoc.TCommune.com }}"
+                 data-idsuf="{{ sel_assoc.TCadastre.idsuf }}">
+              {{ sel_assoc.TCadastre.idsuf }}<br>
+              <small>({{ sel_assoc.TCommune.libelle }} - {{ sel_assoc.TCommune.com }})</small><br>
+              <small>Surf. cadastrale : {{ sel_assoc.TCadastre.dcntsf }} m²</small><br>
+              <label class="form-label mt-1" style="font-size: 0.9em;">Surf. demandée :</label>
+              <input type="number"
+                     name="surface_demandee"
+                     class="form-control form-control-sm surface-input"
+                     data-code-insee="{{ sel_assoc.TCommune.com }}"
+                     data-idsuf="{{ sel_assoc.TCadastre.idsuf }}"
+                     data-surface-cadastre="{{ sel_assoc.TCadastre.dcntsf }}"
+                     value="{{ sel_assoc.SelectionParcelle.surface_demandee or sel_assoc.TCadastre.dcntsf }}"
+                     style="width: 120px;">
+            </div>
+            {% else %}
+            <div class="border rounded p-2">
+              {{ sel_assoc.SelectionParcelle.idsuf }}
+              <span class="badge bg-secondary">Saisie manuelle</span>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>Aucune parcelle sélectionnée.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100"></div>
+
+<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="confirmationModalLabel">Confirmation requise</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary" id="confirmActionBtn">Confirmer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addParcelModal" tabindex="-1" aria-labelledby="addParcelModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('selection.add_manual_parcelle') }}" id="add-parcel-form">
+        <div class="modal-header">
+          <h5 class="modal-title" id="addParcelModalLabel">Ajouter une nouvelle parcelle manquante au cadastre et à la sélection : </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+        </div>
+        <div class="modal-body">
+          {{ add_form.hidden_tag() }}
+          <div class="mb-3">
+            {{ add_form.departement.label(class="form-label") }}
+            {{ add_form.departement(class="form-select", id="add_departement") }}
+          </div>
+          <div class="mb-3">
+            {{ add_form.commune.label(class="form-label") }}
+            {{ add_form.commune(class="form-select", id="add_commune") }}
+          </div>
+          <hr>
+          <div class="mb-3">
+            {{ add_form.prefixe.label(class="form-label") }}
+            {{ add_form.prefixe(class="form-control", id="add_prefixe") }}
+          </div>
+          <div class="mb-3">
+            {{ add_form.section.label(class="form-label") }}
+            {{ add_form.section(class="form-control", id="add_section", placeholder="Ex: OA, B, 42...") }}
+          </div>
+          <div class="mb-3">
+            {{ add_form.numero.label(class="form-label") }}
+            {{ add_form.numero(class="form-control", id="add_numero", placeholder="Ex: 123, 45...") }}
+          </div>
+          <div class="mb-3">
+            {{ add_form.subdivision.label(class="form-label") }}
+            {{ add_form.subdivision(class="form-control", id="add_subdivision", placeholder="Ex: A, AB") }}
+          </div>
+          <div class="mb-3">
+            {{ add_form.superficie.label(class="form-label") }}
+            {{ add_form.superficie(class="form-control", id="add_superficie", placeholder="saisir un nombre entier en mètres carrés") }}
+          </div>
+          <!--<div class="alert alert-info mt-3" role="alert" style="font-size: 0.9em;">
+            L'identifiant complet (IDSuf), composé à partir de ces champs, ne doit pas dépasser 17 caractères pour être valide.
+          </div>-->
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+          <button type="submit" class="btn btn-primary">Ajouter la nouvelle parcelle dans le cadastre et dans la sélection</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const sectionInput = document.getElementById('add_section');
+
+    if (sectionInput) {
+      // Nettoyage immédiat de la valeur initiale
+      sectionInput.value = sectionInput.value.replace(/'/g, '');
+
+      // Nettoyage continu pendant la saisie
+      sectionInput.addEventListener('input', function () {
+        this.value = this.value.replace(/'/g, '');
+      });
+    }
+  });
+</script>
+
+{% endblock %}

@@ -1,0 +1,7 @@
+body {
+  background-color: #f7f7f7;
+}
+
+.list-group-item input[type="checkbox"] {
+  cursor: pointer;
+}
